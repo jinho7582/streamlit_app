@@ -11,34 +11,46 @@ st.set_page_config(
 
 st.title("🅿️ 주차장 정보 검색 서비스")
 
-uploaded_file = st.file_uploader(
-    "CSV 파일 업로드 (CP949)",
-    type=["csv"]
-)
+uploaded_file = st.file_uploader("CSV 파일 업로드 (CP949)", type=["csv"])
 
 if uploaded_file:
 
     df = pd.read_csv(uploaded_file, encoding="cp949")
 
-    # ✅ 숫자 컬럼 정리 (에러 방지 핵심)
+    st.success("파일 업로드 완료!")
+
+    # ---------------------------
+    # ✅ 컬럼 이름 정리 (핵심)
+    # ---------------------------
+    df.rename(columns={
+        "기본 주차 요금": "기본요금",
+        "기본 주차 시간(분 단위)": "기본시간",
+        "추가 단위 요금": "추가요금",
+        "추가 단위 시간(분 단위)": "추가시간",
+        "유무료구분명": "무료여부",
+        "주차장 종류명": "주차장종류"
+    }, inplace=True)
+
+    # ---------------------------
+    # 숫자 변환
+    # ---------------------------
     num_cols = ["기본요금", "기본시간", "추가요금", "추가시간"]
+
     for col in num_cols:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
     df["추가시간"] = df["추가시간"].fillna(1)
     df[num_cols] = df[num_cols].fillna(0)
 
-    # 문자열 공백 제거
+    # 문자열 정리
     df["무료여부"] = df["무료여부"].astype(str).str.strip()
-
-    st.success("파일 업로드 완료!")
 
     st.subheader("원본 데이터")
     st.dataframe(df)
 
-    # -------------------
-    # 사이드바 필터
-    # -------------------
+    # ---------------------------
+    # 사이드바
+    # ---------------------------
     st.sidebar.header("검색 조건")
 
     gu = st.sidebar.selectbox(
@@ -65,9 +77,9 @@ if uploaded_file:
 
     result = df.copy()
 
-    # -------------------
-    # 필터 적용
-    # -------------------
+    # ---------------------------
+    # 필터
+    # ---------------------------
     if gu != "전체":
         result = result[result["자치구"] == gu]
 
@@ -77,9 +89,9 @@ if uploaded_file:
     if fee_type != "전체":
         result = result[result["무료여부"] == fee_type]
 
-    # -------------------
-    # 요금 계산 함수
-    # -------------------
+    # ---------------------------
+    # 요금 계산
+    # ---------------------------
     def calc_fee(row):
 
         if row["무료여부"] == "무료":
@@ -103,7 +115,6 @@ if uploaded_file:
 
     result["예상요금"] = result.apply(calc_fee, axis=1)
 
-    # 정렬 (싼 순)
     result = result.sort_values("예상요금")
 
     st.header("검색 결과")
@@ -111,9 +122,6 @@ if uploaded_file:
 
     if len(result) > 0:
 
-        # -------------------
-        # 최저가
-        # -------------------
         cheapest = result.iloc[0]
 
         st.success("💰 가장 저렴한 주차장")
@@ -126,47 +134,48 @@ if uploaded_file:
         with col2:
             st.metric("예상요금", f'{int(cheapest["예상요금"]):,} 원')
 
-        # -------------------
-        # TOP 3 추천
-        # -------------------
+        # TOP 3
         st.subheader("🏆 추천 TOP 3")
-        top3 = result.head(3)
-        st.dataframe(top3[["주차장명", "자치구", "예상요금"]])
+        st.dataframe(result.head(3)[["주차장명", "자치구", "예상요금"]])
 
-        # -------------------
-        # 지도 표시 (NaN 제거)
-        # -------------------
+        # ---------------------------
+        # 지도 (좌표 있는 것만)
+        # ---------------------------
         map_df = result.dropna(subset=["위도", "경도"])
 
-        st.subheader("지도")
+        if len(map_df) > 0:
 
-        layer = pdk.Layer(
-            "ScatterplotLayer",
-            data=map_df,
-            get_position='[경도, 위도]',
-            get_radius=120,
-            get_fill_color='[255, 0, 0, 180]',
-            pickable=True
-        )
+            st.subheader("지도")
 
-        view = pdk.ViewState(
-            latitude=map_df["위도"].mean(),
-            longitude=map_df["경도"].mean(),
-            zoom=11
-        )
-
-        st.pydeck_chart(
-            pdk.Deck(
-                layers=[layer],
-                initial_view_state=view,
-                tooltip={
-                    "text":
-                    "주차장명: {주차장명}\n"
-                    "자치구: {자치구}\n"
-                    "예상요금: {예상요금}원"
-                }
+            layer = pdk.Layer(
+                "ScatterplotLayer",
+                data=map_df,
+                get_position='[경도, 위도]',
+                get_radius=120,
+                get_fill_color='[255, 0, 0, 180]',
+                pickable=True
             )
-        )
+
+            view = pdk.ViewState(
+                latitude=map_df["위도"].mean(),
+                longitude=map_df["경도"].mean(),
+                zoom=11
+            )
+
+            st.pydeck_chart(
+                pdk.Deck(
+                    layers=[layer],
+                    initial_view_state=view,
+                    tooltip={
+                        "text":
+                        "주차장명: {주차장명}\n"
+                        "자치구: {자치구}\n"
+                        "예상요금: {예상요금}원"
+                    }
+                )
+            )
+        else:
+            st.warning("지도 표시할 좌표 데이터가 없습니다.")
 
     else:
         st.warning("검색 결과가 없습니다.")
